@@ -1,0 +1,17 @@
+This is a sample file for testing the S3 Lambda integration.
+
+When you upload this file to the S3 bucket (under the uploads/ prefix),
+it will trigger the Lambda function which will log information about the file.
+
+Upload command:
+aws s3 cp sample-file.txt s3://YOUR_BUCKET_NAME/uploads/sample-file.txt
+
+Then check the Lambda logs to see the processing:
+aws logs tail /aws/lambda/YOUR_FUNCTION_NAME --follow
+
+You should see output including:
+- Event type
+- Bucket name
+- Object key
+- File size
+- Environment (staging or production)
