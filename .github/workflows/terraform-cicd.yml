@@ -86,7 +86,7 @@ jobs:
 
       - name: Save Plan Artifact
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: staging-tfplan
           path: environments/tfplan
@@ -233,7 +233,7 @@ jobs:
 
       - name: Save Plan Artifact
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: production-tfplan
           path: environments/tfplan
