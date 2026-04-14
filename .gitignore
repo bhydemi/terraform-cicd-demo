@@ -13,6 +13,11 @@ override.tf.json
 .terraformrc
 terraform.rc
 
+# Exception: Include environment-specific tfvars files
+!environments/dev.tfvars
+!environments/staging.tfvars
+!environments/production.tfvars
+
 # Lambda deployment packages
 *.zip
 
