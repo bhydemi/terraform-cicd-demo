@@ -1,4 +1,4 @@
-name: Terraform Destroy
+name: Destroy Environment
 
 on:
   workflow_dispatch:
@@ -19,23 +19,25 @@ env:
   AWS_REGION: 'us-east-1'
 
 jobs:
-  terraform-destroy:
-    name: Terraform Destroy - ${{ github.event.inputs.environment }}
+  destroy:
+    name: Destroy ${{ github.event.inputs.environment }}
     runs-on: ubuntu-latest
     if: github.event.inputs.confirm == 'destroy'
 
     defaults:
       run:
-        working-directory: ./environments/${{ github.event.inputs.environment }}
-
-    environment:
-      name: ${{ github.event.inputs.environment }}
+        working-directory: ./environments
 
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -43,22 +45,13 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve -input=false
+        run: terraform destroy -var-file="${{ github.event.inputs.environment }}.tfvars" -auto-approve
 
-      - name: Destruction Summary
+      - name: Summary
         run: |
-          echo "### Destruction Summary for ${{ github.event.inputs.environment }} 💥" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Environment**: \`${{ github.event.inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Region**: \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Destroyed by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "## ${{ github.event.inputs.environment }} Destroyed 💥" >> $GITHUB_STEP_SUMMARY
+          echo "Destroyed by @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

@@ -1,38 +1,27 @@
-name: Terraform CI/CD Pipeline
+name: Terraform CI/CD
 
 on:
   pull_request:
     branches: [staging, main]
-    paths:
-      - 'environments/**'
-      - 'modules/**'
-      - '.github/workflows/**'
   push:
     branches: [staging, main]
-    paths:
-      - 'environments/**'
-      - 'modules/**'
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        type: choice
-        options:
-          - staging
-          - production
 
 env:
   TF_VERSION: '1.6.0'
   AWS_REGION: 'us-east-1'
 
 jobs:
-  terraform-validate:
-    name: Terraform Validate
+  staging:
+    name: Staging
+    if: github.ref == 'refs/heads/staging' || github.base_ref == 'staging'
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: ./environments
+
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Terraform
@@ -40,25 +29,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-        continue-on-error: false
-
-  terraform-plan-staging:
-    name: Plan Staging
-    runs-on: ubuntu-latest
-    needs: terraform-validate
-    if: github.base_ref == 'staging' || github.ref == 'refs/heads/staging'
-
-    defaults:
-      run:
-        working-directory: ./environments
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -66,146 +37,69 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
       - name: Terraform Init
-        id: init
         run: terraform init
-
-      - name: Terraform Validate
-        id: validate
-        run: terraform validate -no-color
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -var-file="staging.tfvars" -no-color -input=false -out=tfplan
+        run: terraform plan -var-file="staging.tfvars" -no-color
         continue-on-error: true
 
-      - name: Save Plan Artifact
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: staging-tfplan
-          path: environments/tfplan
-          retention-days: 5
-
-      - name: Comment PR with Staging Plan
+      - name: Comment PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const output = `### Terraform Plan for Staging 🔍
-
-            #### Terraform Format and Style 🖌\`${{ steps.init.outcome }}\`
-            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
-            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
-            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
-
-            <details><summary>Show Staging Plan</summary>
-
-            \`\`\`terraform
-            ${{ steps.plan.outputs.stdout }}
-            \`\`\`
-
-            </details>
-
-            **Next Steps:**
-            - ✅ Merge this PR to deploy to **staging** environment
-            - 📋 After staging is verified, create a PR to **main** for production
-
-            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body: `### Staging Plan
+
+              \`\`\`
+              ${{ steps.plan.outputs.stdout }}
+              \`\`\`
+
+              Merge to deploy to staging.`
             })
 
-  terraform-apply-staging:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    needs: terraform-plan-staging
-    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
-
-    defaults:
-      run:
-        working-directory: ./environments
-
-    environment:
-      name: staging
-      url: https://console.aws.amazon.com/s3/
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform Init
-        run: terraform init
-
       - name: Terraform Apply
-        run: terraform apply -var-file="staging.tfvars" -auto-approve -input=false
+        if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+        run: terraform apply -var-file="staging.tfvars" -auto-approve
 
-      - name: Get Terraform Outputs
+      - name: Get Outputs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
         id: outputs
         run: |
-          echo "bucket_name=$(terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
-          echo "lambda_function=$(terraform output -raw lambda_function_name)" >> $GITHUB_OUTPUT
+          echo "bucket=$(terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
+          echo "lambda=$(terraform output -raw lambda_function_name)" >> $GITHUB_OUTPUT
 
-      - name: Deployment Summary
+      - name: Summary
+        if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
         run: |
-          echo "### Staging Deployment Successful! 🚀" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Resources Created:" >> $GITHUB_STEP_SUMMARY
-          echo "- **S3 Bucket**: \`${{ steps.outputs.outputs.bucket_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Lambda Function**: \`${{ steps.outputs.outputs.lambda_function }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Region**: \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Environment**: \`staging\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Test the Deployment:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "# Upload a test file" >> $GITHUB_STEP_SUMMARY
-          echo "aws s3 cp test.txt s3://${{ steps.outputs.outputs.bucket_name }}/uploads/test.txt" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# Check Lambda logs" >> $GITHUB_STEP_SUMMARY
-          echo "aws logs tail /aws/lambda/${{ steps.outputs.outputs.lambda_function }} --follow" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Ready for Production?**" >> $GITHUB_STEP_SUMMARY
-          echo "Create a PR from \`staging\` → \`main\` to deploy to production" >> $GITHUB_STEP_SUMMARY
+          echo "## Staging Deployed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Bucket: \`${{ steps.outputs.outputs.bucket }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Lambda: \`${{ steps.outputs.outputs.lambda }}\`" >> $GITHUB_STEP_SUMMARY
 
-  terraform-plan-production:
-    name: Plan Production
+  production:
+    name: Production
+    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
     runs-on: ubuntu-latest
-    needs: terraform-validate
-    if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
 
     defaults:
       run:
         working-directory: ./environments
 
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -213,121 +107,46 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
       - name: Terraform Init
-        id: init
         run: terraform init
-
-      - name: Terraform Validate
-        id: validate
-        run: terraform validate -no-color
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -var-file="production.tfvars" -no-color -input=false -out=tfplan
+        run: terraform plan -var-file="production.tfvars" -no-color
         continue-on-error: true
 
-      - name: Save Plan Artifact
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: production-tfplan
-          path: environments/tfplan
-          retention-days: 5
-
-      - name: Comment PR with Production Plan
+      - name: Comment PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const output = `### Terraform Plan for Production 🏭
-
-            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
-            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
-            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
-
-            <details><summary>Show Production Plan</summary>
-
-            \`\`\`terraform
-            ${{ steps.plan.outputs.stdout }}
-            \`\`\`
-
-            </details>
-
-            **⚠️ PRODUCTION DEPLOYMENT**
-            - Merge this PR to deploy to **production** environment
-            - Ensure staging has been thoroughly tested first
-
-            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body: `### Production Plan ⚠️
+
+              \`\`\`
+              ${{ steps.plan.outputs.stdout }}
+              \`\`\`
+
+              **WARNING:** Merge to deploy to PRODUCTION.`
             })
 
-  terraform-apply-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: terraform-plan-production
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    defaults:
-      run:
-        working-directory: ./environments
-
-    environment:
-      name: production
-      url: https://console.aws.amazon.com/s3/
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform Init
-        run: terraform init
-
       - name: Terraform Apply
-        run: terraform apply -var-file="production.tfvars" -auto-approve -input=false
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: terraform apply -var-file="production.tfvars" -auto-approve
 
-      - name: Get Terraform Outputs
+      - name: Get Outputs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: outputs
         run: |
-          echo "bucket_name=$(terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
-          echo "lambda_function=$(terraform output -raw lambda_function_name)" >> $GITHUB_OUTPUT
+          echo "bucket=$(terraform output -raw bucket_name)" >> $GITHUB_OUTPUT
+          echo "lambda=$(terraform output -raw lambda_function_name)" >> $GITHUB_OUTPUT
 
-      - name: Deployment Summary
+      - name: Summary
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          echo "### Production Deployment Successful! 🎉" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Resources Created:" >> $GITHUB_STEP_SUMMARY
-          echo "- **S3 Bucket**: \`${{ steps.outputs.outputs.bucket_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Lambda Function**: \`${{ steps.outputs.outputs.lambda_function }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Region**: \`${{ env.AWS_REGION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Environment**: \`production\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Deployed by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Verify Deployment:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "aws s3 ls s3://${{ steps.outputs.outputs.bucket_name }}/" >> $GITHUB_STEP_SUMMARY
-          echo "aws lambda get-function --function-name ${{ steps.outputs.outputs.lambda_function }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "## Production Deployed 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- Bucket: \`${{ steps.outputs.outputs.bucket }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Lambda: \`${{ steps.outputs.outputs.lambda }}\`" >> $GITHUB_STEP_SUMMARY
