@@ -9,6 +9,13 @@ A comprehensive demonstration of Infrastructure as Code (IaC) with Terraform, fe
 - Remote state management (S3 + DynamoDB)
 - Automated deployments with GitHub Actions
 
+## 📖 Quick Links
+
+- **[CI/CD Guide](CI_CD_GUIDE.md)** ⭐ Start here to understand the automation!
+- [Local Development](LOCAL_DEVELOPMENT.md) - How to develop locally
+- [Quick Start](QUICKSTART.md) - Get started in 10 minutes
+- [Environment Config](environments/README.md) - Understand the templated environments
+
 ## Quick Start for Local Development
 
 ```bash
