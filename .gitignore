@@ -46,3 +46,4 @@ __pycache__/
 # Backup files
 *.bak
 *.backup
+*.tfplan

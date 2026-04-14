@@ -76,18 +76,35 @@ lambda_log_level        = "DEBUG|INFO|WARN|ERROR"
 
 ## Deployment Workflow
 
-### Local Development Flow
-1. Work in `dev` environment locally
-2. Test changes: `./deploy.sh dev plan`
-3. Deploy: `./deploy.sh dev apply`
+### Local Development Flow (Default: Dev Environment)
+The project defaults to `dev` environment for local development:
 
-### CI/CD Flow
-1. Create feature branch
-2. Open PR to `staging` branch → triggers staging plan
-3. Merge to `staging` → auto-deploys to staging environment
-4. Test in staging
-5. Open PR from `staging` to `main` → triggers production plan
-6. Merge to `main` → auto-deploys to production environment
+```bash
+cd environments
+
+# No need to specify environment - defaults to dev
+terraform plan
+terraform apply
+```
+
+**Or use the deploy script:**
+```bash
+./deploy.sh dev plan
+./deploy.sh dev apply
+```
+
+### CI/CD Flow (Staging & Production)
+CI/CD explicitly controls staging and production:
+
+1. **Develop Locally**: Test in dev environment first
+2. **Push to Staging**:
+   - Create feature branch
+   - Open PR to `staging` branch → triggers staging plan
+   - Merge to `staging` → auto-deploys with `staging.tfvars`
+3. **Test in Staging**: Verify everything works
+4. **Promote to Production**:
+   - Open PR from `staging` to `main` → triggers production plan
+   - Merge to `main` → auto-deploys with `production.tfvars`
 
 ## Adding a New Environment
 

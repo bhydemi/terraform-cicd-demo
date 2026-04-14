@@ -3,6 +3,7 @@
 variable "environment" {
   description = "Environment name (dev, staging, or production)"
   type        = string
+  default     = "dev"  # Default to local development environment
 
   validation {
     condition     = contains(["dev", "staging", "production"], var.environment)
@@ -19,6 +20,7 @@ variable "aws_region" {
 variable "enable_bucket_versioning" {
   description = "Enable versioning on S3 bucket"
   type        = bool
+  default     = false  # Default to no versioning for dev
 }
 
 variable "lambda_log_level" {

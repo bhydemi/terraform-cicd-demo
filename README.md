@@ -1,61 +1,105 @@
 # Terraform CI/CD Demo Project
 
 A comprehensive demonstration of Infrastructure as Code (IaC) with Terraform, featuring:
+- **Templated environments** with shared configuration
+- **Local development** defaults to dev environment
+- **CI/CD automation** for staging and production
 - Reusable Terraform modules
 - S3 buckets with Lambda event processing
 - Remote state management (S3 + DynamoDB)
-- Separate staging and production environments
-- Automated CI/CD with GitHub Actions
+- Automated deployments with GitHub Actions
+
+## Quick Start for Local Development
+
+```bash
+# 1. Set up AWS credentials
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+export AWS_SESSION_TOKEN="your-token"  # if using temporary credentials
+
+# 2. Set up backend (one-time)
+./setup-backend.sh
+
+# 3. Deploy to dev environment (defaults automatically)
+cd environments
+terraform init
+terraform plan    # Defaults to dev environment
+terraform apply   # Deploys dev resources
+
+# 4. Test your deployment
+BUCKET=$(terraform output -raw bucket_name)
+echo "test" > test.txt
+aws s3 cp test.txt s3://$BUCKET/uploads/test.txt
+
+# Watch Lambda logs
+aws logs tail /aws/lambda/$(terraform output -raw lambda_function_name) --follow
+```
+
+See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) for detailed local development workflow.
 
 ## Project Structure
 
 ```
 terraform-cicd-demo/
 ├── modules/
-│   ├── s3_bucket/           # Reusable S3 bucket module
+│   ├── s3_bucket/              # Reusable S3 bucket module
 │   │   ├── main.tf
 │   │   ├── variables.tf
 │   │   └── outputs.tf
-│   └── lambda_function/     # Reusable Lambda function module
+│   └── lambda_function/        # Reusable Lambda function module
 │       ├── main.tf
 │       ├── variables.tf
 │       ├── outputs.tf
 │       └── lambda_function.py
 ├── environments/
-│   ├── staging/             # Staging environment
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   └── production/          # Production environment
-│       ├── main.tf
-│       ├── variables.tf
-│       └── outputs.tf
+│   ├── main.tf                # Shared infrastructure template
+│   ├── variables.tf           # Variable definitions (defaults to dev)
+│   ├── outputs.tf             # Output definitions
+│   ├── dev.tfvars            # Dev environment config
+│   ├── staging.tfvars        # Staging environment config (used by CI/CD)
+│   ├── production.tfvars     # Production environment config (used by CI/CD)
+│   └── README.md             # Environment documentation
 ├── .github/workflows/
-│   ├── terraform-cicd.yml   # Main CI/CD workflow
+│   ├── terraform-cicd.yml    # Main CI/CD workflow
 │   └── terraform-destroy.yml # Destruction workflow
-├── backend-setup.tf         # Remote backend setup
-├── setup-backend.sh         # Backend setup script
-├── deploy.sh                # Manual deployment script
-└── README.md
+├── backend-setup.tf          # Remote backend setup
+├── setup-backend.sh          # Backend setup script
+├── deploy.sh                 # Manual deployment script
+├── LOCAL_DEVELOPMENT.md      # Local development guide
+├── QUICKSTART.md             # Quick start guide
+├── WORKFLOW.md               # CI/CD workflow documentation
+└── README.md                 # This file
 ```
 
 ## Architecture
 
-This project demonstrates a serverless architecture on AWS:
+This project demonstrates a serverless architecture on AWS with three environments:
 
-**Staging Environment:**
-- S3 bucket (tagged: staging)
-- Lambda function for S3 event processing
-- No versioning (cost optimization)
-- INFO log level
+### Dev Environment (Local Development)
+- **Trigger**: Manual `terraform apply`
+- **S3 Bucket**: `cicd-demo-app-dev-XXXXXXXX` (tagged: dev)
+- **Lambda Function**: `cicd-demo-s3-processor-dev`
+- **Versioning**: Disabled (cost optimization)
+- **Log Level**: INFO (default)
+- **Purpose**: Local testing and development
 
-**Production Environment:**
-- S3 bucket (tagged: production)
-- Lambda function for S3 event processing
-- Versioning enabled (data protection)
-- WARN log level
+### Staging Environment (CI/CD)
+- **Trigger**: Merge to `staging` branch
+- **S3 Bucket**: `cicd-demo-app-staging-XXXXXXXX` (tagged: staging)
+- **Lambda Function**: `cicd-demo-s3-processor-staging`
+- **Versioning**: Disabled (cost optimization)
+- **Log Level**: INFO
+- **Purpose**: Pre-production testing
 
-Both environments store Terraform state remotely in S3 with DynamoDB state locking.
+### Production Environment (CI/CD)
+- **Trigger**: Merge to `main` branch
+- **S3 Bucket**: `cicd-demo-app-production-XXXXXXXX` (tagged: production)
+- **Lambda Function**: `cicd-demo-s3-processor-production`
+- **Versioning**: **Enabled** (data protection)
+- **Log Level**: WARN (errors and warnings only)
+- **Purpose**: Live production environment
+
+All environments store Terraform state remotely in S3 with DynamoDB state locking.
 
 ## Prerequisites
 
@@ -72,12 +116,12 @@ You'll need the following AWS credentials:
 - `AWS_SECRET_ACCESS_KEY`
 - `AWS_SESSION_TOKEN` (if using temporary credentials)
 
-## Quick Start
+## Setup Guide
 
 ### Step 1: Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/bhydemi/terraform-cicd-demo.git
 cd terraform-cicd-demo
 ```
 
@@ -90,7 +134,7 @@ export AWS_SESSION_TOKEN="your-session-token"  # If using temporary credentials
 export AWS_REGION="us-east-1"
 ```
 
-### Step 3: Set Up Remote Backend
+### Step 3: Set Up Remote Backend (One-Time)
 
 The remote backend stores Terraform state in S3 and uses DynamoDB for state locking.
 
@@ -111,281 +155,339 @@ terraform apply backend.tfplan
 ```
 
 This creates:
-- S3 bucket: `terraform-cicd-demo-state-bucket`
-- DynamoDB table: `terraform-cicd-demo-locks`
+- **S3 bucket**: `terraform-cicd-demo-state-bucket`
+  - Versioning enabled
+  - Encryption enabled
+  - Public access blocked
+- **DynamoDB table**: `terraform-cicd-demo-locks`
+  - Pay-per-request billing
+  - Used for state locking
 
-### Step 4: Deploy to Staging
+### Step 4: Local Development
+
+The project defaults to **dev** environment for local work:
 
 ```bash
-# Using the deployment script
-./deploy.sh staging plan
-./deploy.sh staging apply
+cd environments
 
-# Or manually
-cd environments/staging
+# Initialize Terraform
 terraform init
+
+# Plan deployment (defaults to dev)
 terraform plan
+
+# Apply deployment
 terraform apply
-```
 
-### Step 5: Deploy to Production
-
-```bash
-# Using the deployment script
-./deploy.sh production plan
-./deploy.sh production apply
-
-# Or manually
-cd environments/production
-terraform init
-terraform plan
-terraform apply
-```
-
-## GitHub Actions CI/CD Setup
-
-### 1. Add GitHub Secrets
-
-Go to your repository Settings → Secrets and variables → Actions, and add:
-
-- `AWS_ACCESS_KEY_ID`: Your AWS access key
-- `AWS_SECRET_ACCESS_KEY`: Your AWS secret key
-- `AWS_SESSION_TOKEN`: Your AWS session token (if using temporary credentials)
-
-### 2. CI/CD Workflow
-
-The pipeline automatically:
-
-**On Pull Request:**
-- Runs `terraform fmt` check
-- Runs `terraform validate`
-- Runs `terraform plan` for both environments
-- Comments the plan output on the PR
-
-**On Push to Main:**
-- Runs all checks
-- Applies changes to staging first
-- Then applies to production
-- Updates GitHub deployment status
-
-### 3. Manual Workflows
-
-**Deploy Manually:**
-```bash
-# Go to Actions → Terraform CI/CD Pipeline → Run workflow
-# Select environment and trigger
-```
-
-**Destroy Resources:**
-```bash
-# Go to Actions → Terraform Destroy → Run workflow
-# Select environment and type "destroy" to confirm
-```
-
-## Testing the Demo
-
-### 1. Verify Infrastructure
-
-```bash
-# Check staging outputs
-cd environments/staging
-terraform output
-
-# Check production outputs
-cd environments/production
+# View outputs
 terraform output
 ```
 
-### 2. Test S3 Lambda Integration
+**No need to specify `-var-file` for local development!**
+
+See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) for full local development workflow.
+
+### Step 5: Test Your Deployment
 
 ```bash
-# Get bucket name from output
+# Get bucket name
 BUCKET_NAME=$(terraform output -raw bucket_name)
 
-# Upload a test file
-echo "Hello from Terraform CI/CD Demo!" > test.txt
+# Upload test file
+echo "Testing S3 Lambda integration at $(date)" > test.txt
 aws s3 cp test.txt s3://$BUCKET_NAME/uploads/test.txt
 
-# Check Lambda logs
+# Watch Lambda logs
 FUNCTION_NAME=$(terraform output -raw lambda_function_name)
 aws logs tail /aws/lambda/$FUNCTION_NAME --follow
 ```
 
-### 3. Verify S3 Event Triggers
+Expected output in logs:
+```
+Processing S3 event in dev environment
+Event: ObjectCreated:Put
+Bucket: cicd-demo-app-dev-XXXXXXXX
+Key: uploads/test.txt
+Size: XX bytes
+```
 
-Upload files to the S3 bucket and check Lambda CloudWatch logs to see the processing.
+## Deployment Workflows
 
-## Environment Differences
+### Local Development Workflow
 
-| Feature | Staging | Production |
-|---------|---------|------------|
-| S3 Versioning | Disabled | Enabled |
-| Lambda Log Level | INFO | WARN |
-| Tags | Environment=staging | Environment=production |
-| State File | env/staging/terraform.tfstate | env/production/terraform.tfstate |
+```
+┌──────────────┐
+│ Make Changes │
+│  (in dev)    │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│terraform plan│ ◄── Defaults to dev environment
+└──────┬───────┘
+       │
+       ▼
+┌───────────────┐
+│terraform apply│ ◄── Deploy to dev
+└──────┬────────┘
+       │
+       ▼
+┌──────────────┐
+│ Test Locally │
+└──────────────┘
+```
 
-## Terraform Modules
+### CI/CD Workflow
+
+```
+┌──────────────┐
+│Feature Branch│
+└──────┬───────┘
+       │
+       ▼ (Create PR)
+┌──────────────────┐
+│ PR to staging    │ ──► Terraform plan (staging.tfvars)
+└──────┬───────────┘
+       │ (Merge)
+       ▼
+┌──────────────────┐
+│ Staging Branch   │ ──► Auto-deploy to staging
+└──────┬───────────┘
+       │ (Test & Verify)
+       ▼ (Create PR)
+┌──────────────────┐
+│ PR to main       │ ──► Terraform plan (production.tfvars)
+└──────┬───────────┘
+       │ (Merge)
+       ▼
+┌──────────────────┐
+│ Main Branch      │ ──► Auto-deploy to production
+└──────────────────┘
+```
+
+## CI/CD Setup
+
+### Configure GitHub Secrets
+
+1. Go to your repository on GitHub
+2. Navigate to **Settings** → **Secrets and variables** → **Actions**
+3. Click **New repository secret**
+4. Add these secrets:
+
+| Secret Name | Value |
+|-------------|-------|
+| `AWS_ACCESS_KEY_ID` | Your AWS access key ID |
+| `AWS_SECRET_ACCESS_KEY` | Your AWS secret access key |
+| `AWS_SESSION_TOKEN` | Your AWS session token (if using temporary credentials) |
+
+### GitHub Actions Workflow
+
+The workflow automatically:
+
+**On Pull Request to `staging`:**
+- Validates Terraform formatting
+- Runs `terraform plan` with `staging.tfvars`
+- Posts plan output as PR comment
+
+**On Merge to `staging`:**
+- Runs `terraform apply` with `staging.tfvars`
+- Deploys to staging environment
+- Posts deployment summary
+
+**On Pull Request to `main`:**
+- Validates Terraform formatting
+- Runs `terraform plan` with `production.tfvars`
+- Posts plan with production warning
+
+**On Merge to `main`:**
+- Runs `terraform apply` with `production.tfvars`
+- Deploys to production environment
+- Posts production deployment summary
+
+## Environment Configuration
+
+Each environment has different settings defined in `.tfvars` files:
+
+### dev.tfvars (Local Development)
+```hcl
+environment              = "dev"
+aws_region              = "us-east-1"
+enable_bucket_versioning = false
+lambda_log_level        = "INFO"
+```
+
+### staging.tfvars (CI/CD)
+```hcl
+environment              = "staging"
+aws_region              = "us-east-1"
+enable_bucket_versioning = false
+lambda_log_level        = "INFO"
+```
+
+### production.tfvars (CI/CD)
+```hcl
+environment              = "production"
+aws_region              = "us-east-1"
+enable_bucket_versioning = true   # Data protection
+lambda_log_level        = "WARN"  # Less verbose
+```
+
+## Module Usage
 
 ### S3 Bucket Module
 
-Creates an S3 bucket with:
-- Server-side encryption (AES256)
-- Public access blocking
-- Optional versioning
-- S3 event notifications to Lambda
-
-**Usage:**
 ```hcl
 module "app_bucket" {
-  source = "../../modules/s3_bucket"
+  source = "../modules/s3_bucket"
 
-  bucket_name         = "my-app-bucket"
-  environment         = "staging"
+  bucket_name         = "my-bucket-name"
+  environment         = "dev"
   enable_versioning   = false
-  lambda_function_arn = module.lambda.function_arn
+  tags                = { Project = "Demo" }
+  lambda_function_arn = module.my_lambda.lambda_function_arn
+  notification_prefix = "uploads/"
 }
 ```
 
 ### Lambda Function Module
 
-Creates a Lambda function with:
-- IAM role and policies
-- S3 read permissions
-- CloudWatch Logs integration
-- S3 invoke permissions
-
-**Usage:**
 ```hcl
 module "s3_processor" {
-  source = "../../modules/lambda_function"
+  source = "../modules/lambda_function"
 
-  function_name = "s3-event-processor"
-  environment   = "staging"
-
-  environment_variables = {
-    LOG_LEVEL = "INFO"
-  }
+  function_name = "my-lambda-function"
+  environment   = "dev"
+  log_level     = "INFO"
+  tags          = { Project = "Demo" }
 }
 ```
 
-## State Management
+## Outputs
 
-Terraform state is stored remotely with the following structure:
-
-```
-S3 Bucket: terraform-cicd-demo-state-bucket
-├── env/
-│   ├── staging/
-│   │   └── terraform.tfstate
-│   └── production/
-│       └── terraform.tfstate
-
-DynamoDB Table: terraform-cicd-demo-locks
-- Prevents concurrent modifications
-- Automatic locking/unlocking
-```
-
-## Troubleshooting
-
-### Backend Already Exists
-
-If the S3 bucket or DynamoDB table already exists:
+After deployment, Terraform provides useful outputs:
 
 ```bash
-# Import existing resources
-terraform import aws_s3_bucket.terraform_state terraform-cicd-demo-state-bucket
-terraform import aws_dynamodb_table.terraform_locks terraform-cicd-demo-locks
+terraform output
 ```
 
-### State Lock Errors
-
-If state is locked:
-
-```bash
-# List locks
-aws dynamodb scan --table-name terraform-cicd-demo-locks
-
-# Force unlock (use carefully!)
-terraform force-unlock <LOCK_ID>
+Example output:
+```
+bucket_name = "cicd-demo-app-dev-a1b2c3d4"
+lambda_function_name = "cicd-demo-s3-processor-dev"
+test_upload_command = "aws s3 cp test.txt s3://cicd-demo-app-dev-a1b2c3d4/uploads/test.txt"
+view_logs_command = "aws logs tail /aws/lambda/cicd-demo-s3-processor-dev --follow"
 ```
 
-### Lambda Permission Issues
+## Manual Deployment Script
 
-If Lambda can't be triggered by S3:
+For explicit environment control:
 
 ```bash
-# Check Lambda permissions
-aws lambda get-policy --function-name <function-name>
+# Dev
+./deploy.sh dev plan
+./deploy.sh dev apply
 
-# Re-apply to fix permissions
-terraform apply
+# Staging
+./deploy.sh staging plan
+./deploy.sh staging apply
+
+# Production
+./deploy.sh production plan
+./deploy.sh production apply
 ```
 
 ## Cleanup
 
-### Destroy Staging
+### Destroy Dev Environment
 
 ```bash
-./deploy.sh staging destroy
-```
-
-### Destroy Production
-
-```bash
-./deploy.sh production destroy
-```
-
-### Destroy Backend
-
-```bash
-# This will remove state storage - do this last!
+cd environments
 terraform destroy
 ```
 
-## Best Practices Demonstrated
+### Destroy Staging/Production
 
-1. **Module Reusability**: Common infrastructure patterns in reusable modules
-2. **Environment Separation**: Isolated state files for staging/production
-3. **Remote State**: Centralized state storage with locking
-4. **CI/CD Integration**: Automated testing and deployment
-5. **Security**: Encrypted state, IAM roles, public access blocking
-6. **Tagging**: Consistent resource tagging for cost tracking
-7. **Documentation**: Comprehensive README and inline comments
+```bash
+./deploy.sh staging destroy
+./deploy.sh production destroy
+```
 
-## Learning Objectives
+### Destroy Backend (Last!)
 
-This demo covers concepts from Day 3 and Day 4:
+```bash
+# From root directory
+terraform destroy
+```
 
-**Day 3:**
-- Infrastructure as Code fundamentals
-- Terraform providers and resources
-- State management
-- Variables and outputs
-- Lifecycle operations (init, plan, apply, destroy)
+## Troubleshooting
 
-**Day 4:**
-- Terraform modules
-- Remote backend (S3 + DynamoDB)
-- Multi-environment management
-- GitHub Actions integration
-- Secrets management
+### AWS Credentials Expired
+
+```bash
+# Export fresh credentials
+export AWS_ACCESS_KEY_ID="new-access-key"
+export AWS_SECRET_ACCESS_KEY="new-secret-key"
+export AWS_SESSION_TOKEN="new-token"
+
+# Verify
+aws sts get-caller-identity
+```
+
+### State Lock Issues
+
+```bash
+# Check current locks
+aws dynamodb scan --table-name terraform-cicd-demo-locks
+
+# Force unlock if stuck
+terraform force-unlock <LOCK_ID>
+```
+
+### Wrong Environment Deployed
+
+Check which `.tfvars` file was used or which environment variable was set.
+
+For local development, it always defaults to dev unless you explicitly specify otherwise.
+
+## Documentation
+
+- [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) - Detailed local development guide
+- [QUICKSTART.md](QUICKSTART.md) - Quick setup and deployment
+- [WORKFLOW.md](WORKFLOW.md) - CI/CD workflow details
+- [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) - Project overview
+- [SETUP_INSTRUCTIONS.md](SETUP_INSTRUCTIONS.md) - Complete setup guide
+- [environments/README.md](environments/README.md) - Environment configuration
+
+## Key Features
+
+✅ **Templated Environments** - One template, multiple configurations
+✅ **Local Development First** - Defaults to dev for quick iteration
+✅ **CI/CD Automation** - Automatic deployments to staging and production
+✅ **Reusable Modules** - DRY principle applied
+✅ **Remote State Management** - S3 + DynamoDB locking
+✅ **Security Best Practices** - Encryption, public access blocking, IAM roles
+✅ **Cost Optimized** - AWS Free Tier eligible, <$1/month beyond free tier
+✅ **Production Ready** - Versioning, logging, monitoring
 
 ## Contributing
 
-Feel free to submit issues and enhancement requests!
+1. Create a feature branch
+2. Test locally in dev environment
+3. Create PR to staging
+4. Verify in staging
+5. Create PR to main for production
 
 ## License
 
-This project is for educational purposes.
+MIT License - Feel free to use this project for learning and demonstration purposes.
 
-## Resources
+## Support
 
-- [Terraform Documentation](https://www.terraform.io/docs)
-- [AWS Provider Documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-- [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
-- [AWS S3 Documentation](https://docs.aws.amazon.com/s3/)
+For issues or questions:
+- Check the documentation files
+- Review GitHub Issues
+- Check GitHub Actions logs for CI/CD issues
 
 ---
 
-Built with ❤️ for learning Terraform and CI/CD
+**Built for learning DevOps, IaC, and CI/CD best practices** 🚀
