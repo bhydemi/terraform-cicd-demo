@@ -55,10 +55,10 @@ resource "random_id" "bucket_suffix" {
 module "app_bucket" {
   source = "../modules/s3_bucket"
 
-  bucket_name        = "cicd-demo-app-${local.environment}-${random_id.bucket_suffix.hex}"
-  environment        = local.environment
-  enable_versioning  = var.enable_bucket_versioning
-  tags               = local.common_tags
+  bucket_name         = "cicd-demo-app-${local.environment}-${random_id.bucket_suffix.hex}"
+  environment         = local.environment
+  enable_versioning   = var.enable_bucket_versioning
+  tags                = local.common_tags
   lambda_function_arn = module.s3_processor.lambda_function_arn
   notification_prefix = "uploads/"
 }

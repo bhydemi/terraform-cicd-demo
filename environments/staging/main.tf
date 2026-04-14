@@ -49,9 +49,9 @@ module "s3_processor_lambda" {
 module "app_bucket" {
   source = "../../modules/s3_bucket"
 
-  bucket_name        = "cicd-demo-app-${local.environment}-${random_id.bucket_suffix.hex}"
-  environment        = local.environment
-  enable_versioning  = false
+  bucket_name         = "cicd-demo-app-${local.environment}-${random_id.bucket_suffix.hex}"
+  environment         = local.environment
+  enable_versioning   = false
   lambda_function_arn = module.s3_processor_lambda.function_arn
   notification_prefix = "uploads/"
 
